@@ -41,6 +41,7 @@ except OSError:
 
 try:
     gyro_sensor = GyroSensor(Port.S4, Direction.CLOCKWISE)
+    gyro_sensor.reset_angle(0)
 except OSError:
     gyro_sensor = None
 
@@ -80,12 +81,7 @@ def get_sensor_values():
         data["color"] = None
 
     if gyro_sensor:
-        angle = gyro_sensor.angle()
-
-        if angle >= 360 or angle <= -360:
-            gyro_sensor.reset_angle(0)
-            angle = 0
-
+        angle = gyro_sensor.angle() % 360
         data["gyro_deg"] = angle
     else:
         data["gyro_deg"] = None
@@ -140,6 +136,10 @@ def beep():
     for note in morceau:
         ev3.speaker.beep(note[0], note[1])
         wait(note[2])
+def onled():
+    ev3.light.on(Color.GREEN)
+def offled():
+    ev3.light.off()
 
 # ===============================
 # 🧠 Boucle principale du serveur
@@ -189,9 +189,9 @@ try:
                 response_body = ujson.dumps({"status": "ok", "action": "stop"})
 
             elif "/onled" in request:
-                ev3.light.on(Color.green)
+                ev3.light.on(Color.GREEN)
                 response_body = ujson.dumps({"status": "ok", "action": "onled"})
-                
+
             elif "/offled" in request:
                 ev3.light.off()
                 response_body = ujson.dumps({"status": "ok", "action": "offled"})

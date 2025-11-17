@@ -5,16 +5,32 @@ import {
   View,
   TouchableOpacity,
   ScrollView,
+  Alert,
 } from "react-native";
-// Robot n2
+
+import MiniMap from "./MiniMap"; // ⬅️ IMPORTANT : ajoute MiniMap.js à côté
+
 export default class App extends React.Component {
   state = {
-    ev3IP: "192.168.1.191", // IP du robot EV3
-    sensors: {}, // données capteurs
+    ev3IP: "192.168.1.191",
+    sensors: {},
+    ev3OK: true,
+
+    // Position robot
+    xr: 0,
+    yr: 0,
+    angle: 0,
+
+    // encodeurs précédents
+    prevLeft: 0,
+    prevRight: 0,
+
+    // données environnement
+    obstacles: [],
+    samples: [],
   };
 
   componentDidMount() {
-    // Récupération automatique des capteurs toutes les secondes
     this.interval = setInterval(this.fetchSensorData, 1000);
   }
 
@@ -22,43 +38,120 @@ export default class App extends React.Component {
     clearInterval(this.interval);
   }
 
-  // ---- Récupération des données des capteurs ----
+  // ---- Protection timeout ----
+  fetchWithTimeout = (url, options, timeout = 1500) => {
+    return Promise.race([
+      fetch(url, options),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), timeout)
+      ),
+    ]);
+  };
+
+  // ---- Mise à jour position robot ----
+  updateRobotPosition(left_deg, right_deg) {
+    const { prevLeft, prevRight, xr, yr, angle } = this.state;
+
+    const R = 28;     // rayon roue en mm
+    const L = 120;    // distance entre roues en mm
+
+    const deltaL = (left_deg - prevLeft) * (2 * Math.PI * R) / 360;
+    const deltaR = (right_deg - prevRight) * (2 * Math.PI * R) / 360;
+
+    const deltaD = (deltaL + deltaR) / 2;
+    const deltaTheta = (deltaR - deltaL) / L;
+
+    const newAngle = angle + deltaTheta;
+
+    const newX = xr + deltaD * Math.cos(newAngle);
+    const newY = yr + deltaD * Math.sin(newAngle);
+
+    this.setState({
+      xr: newX,
+      yr: newY,
+      angle: newAngle,
+      prevLeft: left_deg,
+      prevRight: right_deg,
+    });
+  }
+
+  // ---- Récupération capteurs ----
   fetchSensorData = async () => {
     const url = `http://${this.state.ev3IP}:8081/`;
+
     try {
-      const response = await fetch(url);
+      const response = await this.fetchWithTimeout(url);
       const data = await response.json();
-      this.setState({ sensors: data });
+
+      // Mise à jour position
+      if (
+        data.motor_position &&
+        data.motor_position.left_deg !== undefined &&
+        data.motor_position.right_deg !== undefined
+      ) {
+        this.updateRobotPosition(
+          data.motor_position.left_deg,
+          data.motor_position.right_deg
+        );
+      }
+
+      // Mise à jour obstacle & bobarium
+      this.setState({
+        sensors: data,
+        ev3OK: true,
+        obstacles: data.obstacles || [],
+        samples: data.samples || [],
+      });
+
     } catch (error) {
-      // console.warn("Erreur de récupération des capteurs :", error.message);
+      this.setState({ ev3OK: false });
     }
   };
 
-  // ---- Envoi de commandes ----
+  // ---- Commande EV3 ----
   sendCommand = async (command) => {
     const url = `http://${this.state.ev3IP}:8081/${command}`;
     try {
-      await fetch(url);
+      await this.fetchWithTimeout(url);
     } catch (error) {
-      // console.warn("Erreur de commande :", error.message);
+      this.setState({ ev3OK: false });
+      // Alert.alert("Erreur", "Le robot EV3 ne répond plus.");
     }
   };
 
   render() {
-    const { sensors } = this.state;
+    const {
+      sensors,
+      ev3OK,
+      xr,
+      yr,
+      angle,
+      obstacles,
+      samples
+    } = this.state;
 
     return (
       <ScrollView contentContainerStyle={styles.container}>
-        <View pointerEvents="none" style={[styles.bgSphere, styles.bgSphereTopLeft]} />
-        <View pointerEvents="none" style={[styles.bgSphere, styles.bgSphereBottomRight]} />
         <Text style={styles.title}>🚗 Contrôle du Robot EV3</Text>
 
+        {!ev3OK && (
+          <Text style={styles.errorText}>
+            ❌ Robot non détecté – vérifie IP ou connexion
+          </Text>
+        )}
+
+        {/* Mini-map */}
         <View style={styles.mapFrame}>
           <Text style={styles.mapTitle}>🗺️ Carte du robot</Text>
-          {/* La carte sera affichée ici */}
+
+          <MiniMap
+            robot={{ x: xr, y: yr, angle }}
+            obstacles={obstacles}
+            samples={samples}
+          />
         </View>
 
-        {/* Boutons directionnels */}
+        {/* Direction */}
         <TouchableOpacity
           style={[styles.bouton, styles.boutonAvant]}
           onPress={() => this.sendCommand("avancer")}
@@ -95,93 +188,76 @@ export default class App extends React.Component {
         >
           <Text style={styles.texte}>⬇️</Text>
         </TouchableOpacity>
-          {/* Contrôles de la barre */}
-          <Text style={styles.sectionTitle}>Commande barre</Text>
-          <View style={styles.barreControls}>
-            <TouchableOpacity
-              style={[styles.bouton, styles.boutonBarre]}
-              onPress={() => this.sendCommand("upbarre")}
-            >
-              <Text style={styles.texte}>⬆️</Text>
-            </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.bouton, styles.boutonBarre]}
-              onPress={() => this.sendCommand("downbarre")}
-            >
-              <Text style={styles.texte}>⬇️</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.bouton, styles.boutonBarreStop]}
-              onPress={() => this.sendCommand("stopbarre")}
-            >
-              <Text style={styles.texte}>🛑</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Bouton sonore */}
-          <Text style={styles.sectionTitle}>Signal sonore</Text>
+        {/* Commande barre */}
+        <Text style={styles.sectionTitle}>Commande barre</Text>
+        <View style={styles.barreControls}>
           <TouchableOpacity
-            style={[styles.bouton, styles.boutonSonore]}
-            onPress={() => this.sendCommand("beep")}
+            style={[styles.bouton, styles.boutonBarre]}
+            onPress={() => this.sendCommand("upbarre")}
           >
-            <Text style={styles.texte}>🔔</Text>
+            <Text style={styles.texte}>⬆️</Text>
           </TouchableOpacity>
 
-          {/* Boutons LED */}
-          <Text style={styles.sectionTitle}>LED</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
-            <TouchableOpacity
-              style={[styles.bouton, { width: 76, height: 58, marginHorizontal: 6 }]}
-              onPress={() => this.sendCommand("onled")}
-            >
-              <Text style={styles.texte}>💡</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.bouton, { width: 76, height: 58, marginHorizontal: 6 }]}
-              onPress={() => this.sendCommand("offled")}
-            >
-              <Text style={styles.texte}>❌💡</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[styles.bouton, styles.boutonBarre]}
+            onPress={() => this.sendCommand("downbarre")}
+          >
+            <Text style={styles.texte}>⬇️</Text>
+          </TouchableOpacity>
 
-        {/* Affichage des capteurs */}
+          <TouchableOpacity
+            style={[styles.bouton, styles.boutonBarreStop]}
+            onPress={() => this.sendCommand("stopbarre")}
+          >
+            <Text style={styles.texte}>🛑</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Son */}
+        <Text style={styles.sectionTitle}>Signal sonore</Text>
+        <TouchableOpacity
+          style={[styles.bouton, styles.boutonSonore]}
+          onPress={() => this.sendCommand("beep")}
+        >
+          <Text style={styles.texte}>🔔</Text>
+        </TouchableOpacity>
+
+        {/* LEDs */}
+        <Text style={styles.sectionTitle}>LED</Text>
+        <View style={{ flexDirection: "row", justifyContent: "center" }}>
+          <TouchableOpacity
+            style={[styles.bouton, { width: 76, height: 58, marginHorizontal: 6 }]}
+            onPress={() => this.sendCommand("onled")}
+          >
+            <Text style={styles.texte}>💡</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.bouton, { width: 76, height: 58, marginHorizontal: 6 }]}
+            onPress={() => this.sendCommand("offled")}
+          >
+            <Text style={styles.texte}>❌💡</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Capteurs */}
         <View style={styles.sensorCard}>
           <Text style={styles.sensorTitle}>📡 Capteurs en temps réel</Text>
 
-            <Text style={styles.sensorText}>
-              Gauche :{" "}
-              {sensors.motor_position && sensors.motor_position.left_deg !== undefined
-                ? `${sensors.motor_position.left_deg}°`
-                : "—"}
+          <Text style={styles.sensorText}>
+            Gauche : {sensors.motor_position?.left_deg ?? "—"}°
           </Text>
           <Text style={styles.sensorText}>
-            Droite :{" "}
-            {sensors.motor_position && sensors.motor_position.right_deg !== undefined
-              ? `${sensors.motor_position.right_deg}°`
-              : "—"}
+            Droite : {sensors.motor_position?.right_deg ?? "—"}°
           </Text>
-
           <Text style={styles.sensorText}>
-            📏 Distance (Ultrason) :{" "}
-            {sensors.ultrasonic_mm !== undefined
-              ? `${sensors.ultrasonic_mm} mm`
-              : "—"}
+            📏 Distance : {sensors.ultrasonic_mm ?? "—"} mm
           </Text>
-
           <Text style={styles.sensorText}>
-            🎨 Couleur :{" "}
-            {sensors.color
-              ? `${sensors.color.name} (${sensors.color.reflection}%)`
-              : "—"}
+            🎨 Couleur : {sensors.color ? `${sensors.color.name} (${sensors.color.reflection}%)` : "—"}
           </Text>
-
           <Text style={styles.sensorText}>
-            🧭 Gyroscope :{" "}
-            {sensors.gyro_deg !== undefined
-              ? `${sensors.gyro_deg}°`
-              : "—"}
+            🧭 Gyro : {sensors.gyro_deg ?? "—"}°
           </Text>
         </View>
       </ScrollView>
@@ -189,9 +265,6 @@ export default class App extends React.Component {
   }
 }
 
-// ====================
-// 💅 Styles visuels (thème clair iOS)
-// ====================
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
@@ -264,22 +337,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
   },
-  mapFrame: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 12,
-    width: '95%',
-    height: 240,
-    marginBottom: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 18,
-    elevation: 8,
-    overflow: 'hidden',
-  },
+
   mapGlow: {
     position: 'absolute',
     top: -20,
@@ -370,3 +428,4 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 });
+
