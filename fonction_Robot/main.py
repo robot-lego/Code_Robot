@@ -1,6 +1,7 @@
 #!/usr/bin/env pybricks-micropython
 from pybricks.hubs import EV3Brick
 from pybricks.ev3devices import (
+    TouchSensor,
     ColorSensor,
     UltrasonicSensor,
     GyroSensor,
@@ -12,9 +13,11 @@ import socket
 import ujson
 
 # ===============================
-# 🔧 Initialisation du robot EV3
-# ===============================
+# Initialisation du robot EV3
+# =============================== 
 ev3 = EV3Brick()
+
+
 
 # Initialisation des moteurs
 try:
@@ -25,9 +28,13 @@ except OSError:
     left_motor = None
     right_motor = None
     barre_motor=None
-
+    ev3.speaker.beep()
 
 # Capteurs (avec gestion d’erreur pour éviter plantage)
+try:
+    touch_sensor = TouchSensor(Port.S1)
+except OSError:
+    touch_sensor = None
 
 try:
     ultrasonic_sensor = UltrasonicSensor(Port.S2)
@@ -45,7 +52,7 @@ except OSError:
     gyro_sensor = None
 
 # ===============================
-# 🌐 Serveur HTTP local
+# Serveur HTTP local
 # ===============================
 HOST = ''
 PORT = 8081
@@ -55,10 +62,11 @@ server_socket.listen(1)
 
 
 # ===============================
-# 📊 Fonction de lecture des capteurs
+# Fonction de lecture des capteurs
 # ===============================
 def get_sensor_values():
     data = {}
+
     if left_motor and right_motor:
         data["motor_position"] = {
             "left_deg": left_motor.angle(),
@@ -66,6 +74,7 @@ def get_sensor_values():
         }
     else:
         data["motor_position"] = None
+
     if ultrasonic_sensor:
         data["ultrasonic_mm"] = ultrasonic_sensor.distance()
     else:
@@ -80,12 +89,7 @@ def get_sensor_values():
         data["color"] = None
 
     if gyro_sensor:
-        angle = gyro_sensor.angle()
-
-        if angle >= 360 or angle <= -360:
-            gyro_sensor.reset_angle(0)
-            angle = 0
-
+        angle = gyro_sensor.angle() % 360
         data["gyro_deg"] = angle
     else:
         data["gyro_deg"] = None
@@ -94,7 +98,7 @@ def get_sensor_values():
 
 
 # ===============================
-# 🚙 Fonctions de mouvement
+# Fonctions de mouvement
 # ===============================
 def avancer():
     if left_motor and right_motor:
@@ -125,24 +129,23 @@ def stop_robot():
         left_motor.stop(Stop.BRAKE)
         right_motor.stop(Stop.BRAKE)
         print("🛑 Stop")
-def upbarre():barre_motor.run(500)
-def downbarre():barre_motor.run(-500)
+def upbarre():barre_motor.run(100)
+def downbarre():barre_motor.run(-100)
 def stopbarre():barre_motor.stop(Stop.BRAKE)
-def beep():
-    morceau = [
-    (440, 250, 60), (440, 250, 60), (440, 350, 100),    # Spider-Man
-    (587, 300, 100), (523, 250, 80), (440, 250, 80),    # Spider-Man
-    (392, 350, 120), (330, 300, 120),                   # Does whatever
-    (440, 250, 80), (440, 250, 80), (440, 350, 100),    # a spider can
-    (587, 300, 100), (523, 250, 80), (440, 250, 80),
-    (659, 350, 150), (587, 400, 120),                   # Spins a web
-    ]
-    for note in morceau:
-        ev3.speaker.beep(note[0], note[1])
-        wait(note[2])
+
 
 # ===============================
-# 🧠 Boucle principale du serveur
+#  Contrôle de la LED du EV3
+# ===============================
+def led_on():
+    ev3.light.on(Color.GREEN)
+    print("💡 LED ON")
+
+def led_off():
+    ev3.light.off()
+    print("💡 LED OFF")
+# ===============================
+# Boucle principale du serveur
 # ===============================
 try:
     while True:
@@ -159,10 +162,6 @@ try:
             elif "/reculer" in request:
                 reculer()
                 response_body = ujson.dumps({"status": "ok", "action": "reculer"})
-
-            elif "/beep" in request:
-                beep()
-                response_body = ujson.dumps({"status": "ok", "action": "beep"})
 
             elif "/upbarre" in request:
                 upbarre()
@@ -188,13 +187,13 @@ try:
                 stop_robot()
                 response_body = ujson.dumps({"status": "ok", "action": "stop"})
 
-            elif "/onled" in request:
-                ev3.light.on(Color.green)
-                response_body = ujson.dumps({"status": "ok", "action": "onled"})
-                
-            elif "/offled" in request:
-                ev3.light.off()
-                response_body = ujson.dumps({"status": "ok", "action": "offled"})
+            elif "/led_on" in request:
+                led_on()
+                response_body = ujson.dumps({"status": "ok", "action": "led_on"})
+
+            elif "/led_off" in request:
+                led_off()
+                response_body = ujson.dumps({"status": "ok", "action": "led_off"})
 
             else:
                 # Données capteurs
@@ -205,8 +204,10 @@ try:
             client_socket.send(b"Content-Type: application/json\r\n\r\n")
             client_socket.send(response_body.encode("utf-8"))
 
+
+            
         client_socket.close()
-        wait(1)
+        wait(5)
 
 except KeyboardInterrupt:
     print("Arrêt du serveur")
