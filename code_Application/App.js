@@ -48,10 +48,17 @@ export default class App extends React.Component {
     Accelerometer.setUpdateInterval(120);
 
     this.accelSub = Accelerometer.addListener((data) => {
-      this.setState({ accel: data });
+      const { accel } = this.state;
+      if (
+        Math.abs(data.x - accel.x) > 0.05 ||
+        Math.abs(data.y - accel.y) > 0.05 ||
+        Math.abs(data.z - accel.z) > 0.05
+      ) {
+        this.setState({ accel: data });
 
-      if (this.state.tiltMode) {
-        this.handleTiltControl(data);
+        if (this.state.tiltMode) {
+          this.handleTiltControl(data);
+        }
       }
     });
   }
