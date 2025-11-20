@@ -254,7 +254,7 @@ export default class App extends React.Component {
             📏 Distance : {sensors.ultrasonic_mm ?? "—"} mm
           </Text>
           <Text style={styles.sensorText}>
-            🎨 Couleur : {sensors.color ? `${sensors.color.name} (${sensors.color.reflection}%)` : "—"}
+            🎨 Couleur : {sensors.color ? `(${sensors.color.reflection}%)` : "—"}
           </Text>
           <Text style={styles.sensorText}>
             🧭 Gyro : {sensors.gyro_deg ?? "—"}°
