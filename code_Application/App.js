@@ -14,7 +14,7 @@ import MiniMap from "./MiniMap";
 
 export default class App extends React.Component {
   state = {
-    ev3IP: "192.168.1.102",
+    ev3IP: "192.168.1.191",
 
     sensors: {},
     accel: { x: 0, y: 0, z: 0 },
@@ -206,7 +206,7 @@ export default class App extends React.Component {
 
         {!ev3OK && (
           <Text style={styles.errorText}>
-            ❌ Robot non détecté – vérifie IP ou connexion
+            ❌ Robot non détecté - vérifie IP ou connexion
           </Text>
         )}
 
